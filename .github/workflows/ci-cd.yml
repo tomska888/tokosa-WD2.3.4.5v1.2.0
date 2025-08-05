@@ -39,7 +39,7 @@ jobs:
         run: npm ci
 
       - name: Lint code
-        run: npm run lint
+        run: npx eslint .
 
       - name: Run tests
         run: npm test -- --coverage
