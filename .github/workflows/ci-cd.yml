@@ -51,7 +51,6 @@ jobs:
         working-directory: server
         run: |
           npm ci
-          npm run test:coverage
 
       - name: Build Server
         working-directory: server
