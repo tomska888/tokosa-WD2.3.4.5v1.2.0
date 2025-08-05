@@ -67,7 +67,7 @@ jobs:
           {
             "server": {
               "image": "${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-server:latest",
-              "ports": { "80": "HTTP" }
+              "ports": { "3000": "HTTP" }
             },
             "client": {
               "image": "${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-client:latest",
