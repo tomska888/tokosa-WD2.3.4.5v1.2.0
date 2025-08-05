@@ -43,9 +43,9 @@ jobs:
       - name: Set up test environment for server
         run: |
           cat <<EOF > server/.env
-          DATABASE_URL=postgresql://postgres:admin@db:5432/test_main_testing_db
-          JWT_SECRET=test-secret
-          EOF
+DATABASE_URL=postgresql://postgres:admin@db:5432/test_main_testing_db
+JWT_SECRET=test-secret
+EOF
 
       - name: Install & Test Server
         working-directory: server
@@ -108,45 +108,45 @@ jobs:
       - name: Create containers.json
         run: |
           cat <<EOF > containers.json
-          {
-            "server": {
-              "image": "${{ env.SERVER_IMAGE }}",
-              "ports": { "3000": "HTTP" },
-              "environment": {
-                "NODE_ENV": "production",
-                "PORT": "3000",
-                "DATABASE_URL": "${{ secrets.DATABASE_URL }}",
-                "JWT_SECRET": "${{ secrets.JWT_SECRET }}"
-              }
-            },
-            "client": {
-              "image": "${{ env.CLIENT_IMAGE }}",
-              "ports": { "80": "HTTP" }
-            }
-          }
-          EOF
+{
+  "server": {
+    "image": "${{ env.SERVER_IMAGE }}",
+    "ports": { "3000": "HTTP" },
+    "environment": {
+      "NODE_ENV": "production",
+      "PORT": "3000",
+      "DATABASE_URL": "${{ secrets.DATABASE_URL }}",
+      "JWT_SECRET": "${{ secrets.JWT_SECRET }}"
+    }
+  },
+  "client": {
+    "image": "${{ env.CLIENT_IMAGE }}",
+    "ports": { "80": "HTTP" }
+  }
+}
+EOF
 
-                - name: Create public-endpoint.json
-                  run: |
-                    cat <<EOF > public-endpoint.json
-          {
-            "containerName": "server",
-            "containerPort": 3000,
-            "healthCheck": {
-              "path": "/health",
-              "successCodes": "200",
-              "intervalSeconds": 15,
-              "timeoutSeconds": 15,
-              "healthyThreshold": 2,
-              "unhealthyThreshold": 10
-            }
-          }
-          EOF
+      - name: Create public-endpoint.json
+        run: |
+          cat <<EOF > public-endpoint.json
+{
+  "containerName": "server",
+  "containerPort": 3000,
+  "healthCheck": {
+    "path": "/health",
+    "successCodes": "200",
+    "intervalSeconds": 15,
+    "timeoutSeconds": 15,
+    "healthyThreshold": 2,
+    "unhealthyThreshold": 10
+  }
+}
+EOF
 
-                - name: Deploy to Lightsail
-                  run: |
-                    aws lightsail create-container-service-deployment \
-                      --service-name ${{ secrets.LIGHTSAIL_SERVICE_NAME }} \
-                      --containers file://containers.json \
-                      --public-endpoint file://public-endpoint.json \
-                      --region ${{ env.AWS_REGION }}
+      - name: Deploy to Lightsail
+        run: |
+          aws lightsail create-container-service-deployment \
+            --service-name "${{ secrets.LIGHTSAIL_SERVICE_NAME }}" \
+            --containers file://containers.json \
+            --public-endpoint file://public-endpoint.json \
+            --region "${{ env.AWS_REGION }}"
