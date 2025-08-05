@@ -40,6 +40,13 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Set up test environment for server
+        run: |
+          cat <<EOF > server/.env
+          DATABASE_URL=postgresql://postgres:admin@db:5432/test_main_testing_db
+          JWT_SECRET=test-secret
+          EOF
+
       - name: Install & Test Server
         working-directory: server
         run: |
@@ -90,9 +97,7 @@ jobs:
         run: |
           IMAGE_TAG=${{ github.sha }}
           ECR_REGISTRY=${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
-          docker build \
-            -t $ECR_REGISTRY/tokosa-server:$IMAGE_TAG \
-            -f server/Dockerfile server
+          docker build -t $ECR_REGISTRY/tokosa-server:$IMAGE_TAG -f server/Dockerfile server
           docker push $ECR_REGISTRY/tokosa-server:$IMAGE_TAG
           echo "SERVER_IMAGE=$ECR_REGISTRY/tokosa-server:$IMAGE_TAG" >> $GITHUB_ENV
 
@@ -100,9 +105,7 @@ jobs:
         run: |
           IMAGE_TAG=${{ github.sha }}
           ECR_REGISTRY=${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
-          docker build \
-            -t $ECR_REGISTRY/tokosa-client:$IMAGE_TAG \
-            -f client/Dockerfile client
+          docker build -t $ECR_REGISTRY/tokosa-client:$IMAGE_TAG -f client/Dockerfile client
           docker push $ECR_REGISTRY/tokosa-client:$IMAGE_TAG
           echo "CLIENT_IMAGE=$ECR_REGISTRY/tokosa-client:$IMAGE_TAG" >> $GITHUB_ENV
 
