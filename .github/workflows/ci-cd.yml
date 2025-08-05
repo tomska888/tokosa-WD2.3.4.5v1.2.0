@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: [18.x, 20.x]
+        node: [16.x, 18.x]
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -38,12 +38,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Lint code
-        run: npx eslint .
+      - name: Lint client code
+        run: npx eslint client/**
 
-      - name: Run tests
-        run: npm test -- --coverage
+      - name: Run server tests
+        run: npm test --prefix server -- --coverage
 
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: server/coverage
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
@@ -107,18 +112,8 @@ jobs:
       - name: Deploy to Lightsail via SSH
         run: |
           HOST=$(jq -r .accessDetails.ipAddress access.json)
-          USER=$(jq -r .accessDetails.username access.json)
-          KEY=$(jq -r .accessDetails.privateKey access.json)
-          echo "$KEY" > lightsail_key.pem
+          echo "${{ secrets.LIGHTSAIL_SSH_KEY }}" > lightsail_key.pem
           chmod 600 lightsail_key.pem
-
-          # Sync your build folder
-          rsync -avz -e "ssh -i lightsail_key.pem -o StrictHostKeyChecking=no" \
-            build/ $USER@$HOST:/home/$USER/app
-
-          # Install production deps & restart
-          ssh -i lightsail_key.pem -o StrictHostKeyChecking=no $USER@$HOST << 'EOF'
-            cd /home/$USER/app
-            npm ci --production
-            pm2 restart all
-          EOF
+          rsync -avz -e "ssh -i lightsail_key.pem -o StrictHostKeyChecking=no" build/ ubuntu@$HOST:/home/ubuntu/app
+          ssh -i lightsail_key.pem -o StrictHostKeyChecking=no ubuntu@$HOST \
+            "cd /home/ubuntu/app && npm ci --production && pm2 restart all"
