@@ -61,6 +61,35 @@ jobs:
           docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-server:latest
           docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-client:latest
 
+      - name: Generate containers.json
+        run: |
+          cat <<EOF > containers.json
+          {
+            "server": {
+              "image": "${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-server:latest",
+              "ports": { "80": "HTTP" }
+            },
+            "client": {
+              "image": "${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-client:latest",
+              "ports": { "80": "HTTP" }
+            }
+          }
+          EOF
+
+      - name: Generate public-endpoint.json
+        run: |
+          cat <<EOF > public-endpoint.json
+          {
+            "containerName": "client",
+            "containerPort": 80,
+            "healthCheck": {
+              "path": "/",
+              "protocol": "HTTP",
+              "successCodes": "200"
+            }
+          }
+          EOF
+
       - name: Deploy to Lightsail
         run: |
           aws lightsail push-container-image --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} --label server --image ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-server:latest
