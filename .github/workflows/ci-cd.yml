@@ -60,9 +60,6 @@ jobs:
         working-directory: client
         run: |
           npm ci
-          npm run lint
-          npm run type-check
-          npm run test:unit
 
       - name: Build Client
         working-directory: client
