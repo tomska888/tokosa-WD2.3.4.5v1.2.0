@@ -84,8 +84,6 @@ jobs:
             "containerPort": 80,
             "healthCheck": {
               "path": "/",
-              "protocol": "HTTP",
-              "successCodes": "200"
             }
           }
           EOF
