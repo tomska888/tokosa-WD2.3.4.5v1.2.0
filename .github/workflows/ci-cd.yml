@@ -83,7 +83,7 @@ jobs:
             "containerName": "client",
             "containerPort": 80,
             "healthCheck": {
-              "path": "/",
+              "path": "/"
             }
           }
           EOF
