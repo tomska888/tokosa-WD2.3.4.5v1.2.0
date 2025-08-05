@@ -41,6 +41,12 @@ jobs:
       - name: Build server
         run: npm run build --workspace server
 
+      - name: Install lightsailctl plugin
+        run: |
+          curl -Lo lightsailctl https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl
+          chmod +x lightsailctl
+          sudo mv lightsailctl /usr/local/bin/
+
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v1
         with:
@@ -50,13 +56,13 @@ jobs:
         run: |
           docker build -t tokosa-server:latest ./server
           docker build -t tokosa-client:latest ./client
-          docker tag tokosa-server:latest ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-server:latest2
-          docker tag tokosa-client:latest ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-client:latest1
-          docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-server:latest2
-          docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-client:latest1
+          docker tag tokosa-server:latest ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-server:latest
+          docker tag tokosa-client:latest ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-client:latest
+          docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-server:latest
+          docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-client:latest
 
       - name: Deploy to Lightsail
         run: |
-          aws lightsail push-container-image --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} --label server --image ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-server:latest2
-          aws lightsail push-container-image --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} --label client --image ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-client:latest1
+          aws lightsail push-container-image --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} --label server --image ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-server:latest
+          aws lightsail push-container-image --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} --label client --image ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/tokosa-client:latest
           aws lightsail create-container-service-deployment --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} --containers file://containers.json --public-endpoint file://public-endpoint.json
