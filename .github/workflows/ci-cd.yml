@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: [16.x, 18.x]
+        node: [18.x, 20.x]
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -107,8 +107,18 @@ jobs:
       - name: Deploy to Lightsail via SSH
         run: |
           HOST=$(jq -r .accessDetails.ipAddress access.json)
-          echo "${{ secrets.LIGHTSAIL_SSH_KEY }}" > lightsail_key.pem
+          USER=$(jq -r .accessDetails.username access.json)
+          KEY=$(jq -r .accessDetails.privateKey access.json)
+          echo "$KEY" > lightsail_key.pem
           chmod 600 lightsail_key.pem
-          rsync -avz -e "ssh -i lightsail_key.pem -o StrictHostKeyChecking=no" build/ ubuntu@$HOST:/home/ubuntu/app
-          ssh -i lightsail_key.pem -o StrictHostKeyChecking=no ubuntu@$HOST \
-            "cd /home/ubuntu/app && npm ci --production && pm2 restart all"
+
+          # Sync your build folder
+          rsync -avz -e "ssh -i lightsail_key.pem -o StrictHostKeyChecking=no" \
+            build/ $USER@$HOST:/home/$USER/app
+
+          # Install production deps & restart
+          ssh -i lightsail_key.pem -o StrictHostKeyChecking=no $USER@$HOST << 'EOF'
+            cd /home/$USER/app
+            npm ci --production
+            pm2 restart all
+          EOF
