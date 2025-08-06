@@ -25,12 +25,10 @@ export const useAuthStore = defineStore('auth', {
 
     async login(creds: Credentials) {
       const { data } = await loginRequest(creds);
-      // 1) store token
       this.token = data.token;
       localStorage.setItem('token', data.token);
       setAuthHeader(data.token);
 
-      // 2) store & persist email
       this.userEmail = data.user.email;
       localStorage.setItem('userEmail', data.user.email);
     },

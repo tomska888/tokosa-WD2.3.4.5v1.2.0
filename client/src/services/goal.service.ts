@@ -23,7 +23,6 @@ export function getGoals() {
   return axios
     .get<RawGoal[]>(`/api/goals`)
     .then(res =>
-      // map snake_case → camelCase
       res.data.map((g): Goal => ({
         id: g.id,
         title: g.title,
