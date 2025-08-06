@@ -3,9 +3,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
+    branches: [ main ]
 
 jobs:
   build-and-deploy:
@@ -16,22 +16,13 @@ jobs:
       id-token: write
       packages: write
 
-    # Inject your test/prod‐DB URLs + JWT secret from GitHub Secrets:
-    env:
-      TEST_DATABASE_URL:     ${{ secrets.TEST_DATABASE_URL }}
-      DATABASE_URL:          ${{ secrets.DATABASE_URL }}
-      JWT_SECRET:            ${{ secrets.JWT_SECRET }}
-      AWS_REGION:            ${{ secrets.AWS_REGION }}
-      AWS_ACCOUNT_ID:        ${{ secrets.AWS_ACCOUNT_ID }}
-      LIGHTSAIL_SERVICE_NAME: ${{ secrets.LIGHTSAIL_SERVICE_NAME }}
-
     services:
       postgres:
         image: postgres:14
         env:
-          POSTGRES_USER:     neondb_owner
+          POSTGRES_USER: neondb_owner
           POSTGRES_PASSWORD: npg_iU3LqQO0fBrj
-          POSTGRES_DB:       neondb
+          POSTGRES_DB: neondb
         ports:
           - 5432:5432
         options: >-
@@ -40,9 +31,25 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+    env:
+      NODE_ENV: test
+      TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_ACCOUNT_ID: 488927146088
+      LIGHTSAIL_SERVICE_NAME: ${{ secrets.LIGHTSAIL_SERVICE_NAME }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -50,13 +57,19 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install server dependencies
-        run: npm ci --workspace server
+      - name: Install dependencies
+        run: npm ci
 
+      # ─── Run your Kysely migrations in the server workspace ───────
+      - name: Run server migrations
+        run: npm run migrate --workspace server
+
+      # ─── Run server tests with coverage ─────────────────────────
       - name: Run server tests (with coverage)
         run: npm run test:coverage --workspace server
 
-      - name: Install client dependencies
+      # ─── Run client lint & tests ───────────────────────────────
+      - name: Install client deps
         run: npm ci --workspace client
 
       - name: Lint client code
@@ -64,7 +77,8 @@ jobs:
 
       - name: Install lightsailctl plugin
         run: |
-          curl -Lo lightsailctl https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl
+          curl -Lo lightsailctl \
+            https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl
           chmod +x lightsailctl
           sudo mv lightsailctl /usr/local/bin/
 
@@ -72,15 +86,12 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build & push Docker images
+      - name: Build and push Docker images
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          # Build & push server
           docker build -t $ECR_REGISTRY/tokosa-server:latest ./server
           docker push      $ECR_REGISTRY/tokosa-server:latest
-
-          # Build & push client
           docker build -t $ECR_REGISTRY/tokosa-client:latest ./client
           docker push      $ECR_REGISTRY/tokosa-client:latest
 
