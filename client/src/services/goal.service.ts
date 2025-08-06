@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { AuthResponse } from '@/services/auth.service';
 
 export interface Goal {
   id: number;

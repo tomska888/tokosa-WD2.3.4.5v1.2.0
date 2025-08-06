@@ -5,7 +5,6 @@ import {
   setAuthHeader,
   clearAuthHeader,
   Credentials,
-  AuthResponse
 } from '@/services/auth.service';
 
 interface AuthState {

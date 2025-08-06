@@ -32,6 +32,7 @@
 </template>
 
 <script setup lang="ts">
+import type { AxiosError } from 'axios';
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth.store';
@@ -49,10 +50,11 @@ async function onSubmit() {
 
   try {
     await auth.signup({ email: email.value, password: password.value });
-  } catch (err: any) {
+  } catch (err) {
     console.error('Signup threw:', err);
-    error.value = err.response?.data?.message 
-               || 'Signup failed. Please try again.';
+    const axiosErr = err as AxiosError<{ message?: string }>;
+    error.value = axiosErr.response?.data?.message
+               ?? 'Signup failed. Please try again.';
   } finally {
     loading.value = false;
     if (auth.token) {

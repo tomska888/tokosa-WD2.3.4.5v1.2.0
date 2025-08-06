@@ -29,6 +29,7 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth.store';
+import type { AxiosError } from 'axios';
 
 const auth    = useAuthStore();
 const router  = useRouter();
@@ -43,11 +44,11 @@ async function onSubmit() {
 
   try {
     await auth.login({ email: email.value, password: password.value });
-  } catch (err: any) {
+  } catch (err) {
     console.error('Login threw:', err);
-    // capture the server‑side message if present
-    error.value = err.response?.data?.message 
-               || 'Login failed. Please check your credentials.';
+    const axiosErr = err as AxiosError<{ message?: string }>;
+    error.value = axiosErr.response?.data?.message
+               ?? 'Login failed. Please check your credentials.';
   } finally {
     loading.value = false;
     // **If** login actually set a token, go on to Goals

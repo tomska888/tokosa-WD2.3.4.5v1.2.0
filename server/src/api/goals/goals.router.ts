@@ -8,7 +8,7 @@ export const goalsRouter = Router();
 const createGoalSchema = z.object({
   title: z.string().min(1, { message: 'Title is required' }),
   description: z.string().optional(),
-  target_date: z.string().date().optional(),
+  target_date: z.preprocess((val) => (typeof val === 'string' ? new Date(val) : val), z.date()).optional(),
 });
 
 goalsRouter.post('/', authenticateToken, async (req: Request, res: Response): Promise<void> => {

@@ -1,10 +1,10 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router';
-import Home    from '@/views/Home.vue';
+import Home    from '@/views/HomePage.vue';
 import About   from '@/views/About.vue';
-import Login   from '@/views/Login.vue';
+import Login   from '@/views/LoginPage.vue';
 import Signup  from '@/views/Signup.vue';
-import Goals   from '@/views/Goals.vue';
-import Profile from '@/views/Profile.vue';
+import Goals   from '@/views/GoalsPage.vue';
+import Profile from '@/views/ProfilePage.vue';
 import { useAuthStore } from '@/stores/auth.store';
 
 const routes: RouteRecordRaw[] = [
