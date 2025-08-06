@@ -20,9 +20,11 @@ if (!connectionString) {
 
 const pool = new Pool({
   connectionString,
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  ssl: isTest
+    ? false
+    : {
+      rejectUnauthorized: false,
+      },
 })
 
 interface Database {
