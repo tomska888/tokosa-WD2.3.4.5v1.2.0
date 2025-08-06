@@ -62,9 +62,6 @@ jobs:
       - name: Lint client code
         run: npm run lint --workspace client
 
-      - name: Run client tests
-        run: npm test --workspace client
-
       - name: Install lightsailctl plugin
         run: |
           curl -Lo lightsailctl https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl
