@@ -1,22 +1,19 @@
-# Build stage
-FROM node:20-alpine AS builder
+# ---------- build ----------
+FROM node:20-alpine AS build
 WORKDIR /app
-# copy lockfile if present; fall back to install if it's missing
-COPY package.json package-lock.json* ./
+COPY client/package.json client/package-lock.json* ./
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
-COPY . .
+COPY client/ .
 RUN npm run build
 
-# Runtime: nginx serves SPA and proxies /api to server
-FROM nginx:1.27-alpine
-RUN apk add --no-cache curl
-COPY --from=builder /app/dist /usr/share/nginx/html
-
-# Use envsubst for templated nginx config
-ENV NGINX_ENVSUBST_TEMPLATE_SUFFIX=.template
-ENV NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/conf.d
-COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
-
+# ---------- static runtime (Nginx) ----------
+# if you prefer no Nginx, keep your current runtime; this version serves /dist on :80
+FROM nginx:alpine AS runtime
+WORKDIR /usr/share/nginx/html
+# replace default site
+RUN rm -rf ./*
+COPY --from=build /app/dist ./
+# optional health endpoint
+RUN printf 'server { listen 80; location = /healthz { return 204; } location / { try_files $uri /index.html; } }' > /etc/nginx/conf.d/default.conf
 EXPOSE 80
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost/healthz || exit 1
+CMD ["nginx","-g","daemon off;"]
