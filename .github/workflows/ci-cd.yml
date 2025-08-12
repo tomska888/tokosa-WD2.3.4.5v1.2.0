@@ -5,6 +5,7 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 env:
   AWS_REGION: eu-central-1
@@ -60,7 +61,7 @@ jobs:
       - name: Lint client
         run: npm run lint --workspace client
 
-      # ── Build local Docker images (no ECR) ──────────────────────────────────
+      # ── Build local Docker images ───────────────────────────────────────────
       - name: Set tag
         id: vars
         run: echo "TAG=${GITHUB_SHA::12}" >> $GITHUB_OUTPUT
@@ -88,21 +89,21 @@ jobs:
       - name: Push server image to Lightsail
         run: |
           aws lightsail push-container-image \
-            --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} \
+            --service-name "$LIGHTSAIL_SERVICE_NAME" \
             --label server \
             --image server:${{ steps.vars.outputs.TAG }}
 
       - name: Push client image to Lightsail
         run: |
           aws lightsail push-container-image \
-            --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} \
+            --service-name "$LIGHTSAIL_SERVICE_NAME" \
             --label client \
             --image client:${{ steps.vars.outputs.TAG }}
 
-      # ── Generate deployment specs ──────────────────────────────────────────
+      # ── Generate deployment specs (allow variable expansion!) ──────────────
       - name: Generate containers.json
         run: |
-          cat > containers.json <<'JSON'
+          cat > containers.json <<EOF
           {
             "server": {
               "image": ":${LIGHTSAIL_SERVICE_NAME}.server.latest",
@@ -119,11 +120,11 @@ jobs:
               "ports": { "80": "HTTP" }
             }
           }
-          JSON
+          EOF
 
       - name: Generate public-endpoint.json (client public)
         run: |
-          cat > public-endpoint.json <<'JSON'
+          cat > public-endpoint.json <<EOF
           {
             "containerName": "client",
             "containerPort": 80,
@@ -135,11 +136,18 @@ jobs:
               "unhealthyThreshold": 5
             }
           }
-          JSON
+          EOF
+
+      - name: Sanity check resolved image names (no secrets)
+        run: |
+          echo "Expecting images:"
+          echo "  :${LIGHTSAIL_SERVICE_NAME}.server.latest"
+          echo "  :${LIGHTSAIL_SERVICE_NAME}.client.latest"
 
       - name: Deploy to Lightsail
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           aws lightsail create-container-service-deployment \
-            --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} \
+            --service-name "$LIGHTSAIL_SERVICE_NAME" \
             --containers file://containers.json \
             --public-endpoint file://public-endpoint.json
