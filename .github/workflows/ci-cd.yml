@@ -1,4 +1,3 @@
-# .github/workflows/ci-cd.yml
 name: CI/CD Pipeline
 
 on:
@@ -7,137 +6,139 @@ on:
   pull_request:
     branches: [ main ]
 
-jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
+env:
+  AWS_REGION: eu-central-1
+  LIGHTSAIL_SERVICE_NAME: ${{ secrets.LIGHTSAIL_SERVICE_NAME }}
 
-    permissions:
-      contents: read
-      id-token: write
-      packages: write
+jobs:
+  build_test_deploy:
+    runs-on: ubuntu-latest
 
     services:
       postgres:
-        image: postgres:14
+        image: postgres:14-alpine
         env:
-          POSTGRES_USER: neondb_owner
-          POSTGRES_PASSWORD: npg_iU3LqQO0fBrj
-          POSTGRES_DB: neondb
-        ports:
-          - 5432:5432
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        ports: [ "5432:5432" ]
         options: >-
-          --health-cmd "pg_isready -U neondb_owner -d neondb"
+          --health-cmd "pg_isready -U testuser -d testdb"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
 
     env:
       NODE_ENV: test
-      TEST_DATABASE_URL: postgresql://neondb_owner:npg_iU3LqQO0fBrj@localhost:5432/neondb
+      TEST_DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
-      AWS_REGION: ${{ secrets.AWS_REGION }}
-      AWS_ACCOUNT_ID: 488927146088
-      LIGHTSAIL_SERVICE_NAME: ${{ secrets.LIGHTSAIL_SERVICE_NAME }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+            client/package-lock.json
 
-      - name: Install dependencies
+      - name: Install all workspace deps
         run: npm ci
 
-      # ─── Run your Kysely migrations in the server workspace ───────
       - name: Run server migrations
         run: npm run migrate --workspace server
 
-      # ─── Run server tests with coverage ─────────────────────────
-      - name: Run server tests (with coverage)
+      - name: Run server tests (coverage)
         run: npm run test:coverage --workspace server
 
-      # ─── Run client lint & tests ───────────────────────────────
-      - name: Install client deps
-        run: npm ci --workspace client
-
-      - name: Lint client code
+      - name: Lint client
         run: npm run lint --workspace client
 
-      - name: Install lightsailctl plugin
+      # ── Build local Docker images (no ECR) ──────────────────────────────────
+      - name: Set tag
+        id: vars
+        run: echo "TAG=${GITHUB_SHA::12}" >> $GITHUB_OUTPUT
+
+      - name: Build server image
+        run: docker build -t server:${{ steps.vars.outputs.TAG }} ./server
+
+      - name: Build client image
+        run: docker build -t client:${{ steps.vars.outputs.TAG }} ./client
+
+      # ── Push to Lightsail registry ─────────────────────────────────────────
+      - name: Install lightsailctl
         run: |
-          curl -Lo lightsailctl \
-            https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl
+          curl -Lo lightsailctl https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl
           chmod +x lightsailctl
           sudo mv lightsailctl /usr/local/bin/
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
 
-      - name: Build and push Docker images
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        run: |
-          docker build -t $ECR_REGISTRY/tokosa-server:latest ./server
-          docker push      $ECR_REGISTRY/tokosa-server:latest
-          docker build -t $ECR_REGISTRY/tokosa-client:latest ./client
-          docker push      $ECR_REGISTRY/tokosa-client:latest
-
-      - name: Generate containers.json
-        run: |
-          cat <<EOF > containers.json
-          {
-            "server": {
-              "image": "${{ steps.login-ecr.outputs.registry }}/tokosa-server:latest",
-              "ports": { "3000": "HTTP" },
-              "environment": {
-                "DATABASE_URL": "${{ env.DATABASE_URL }}",
-                "JWT_SECRET":   "${{ env.JWT_SECRET }}"
-              }
-            },
-            "client": {
-              "image": "${{ steps.login-ecr.outputs.registry }}/tokosa-client:latest",
-              "ports": { "80": "HTTP" }
-            }
-          }
-          EOF
-
-      - name: Generate public-endpoint.json
-        run: |
-          cat <<EOF > public-endpoint.json
-          {
-            "containerName": "client",
-            "containerPort": 80,
-            "healthCheck": {
-              "path": "/"
-            }
-          }
-          EOF
-
-      - name: Deploy to Lightsail
+      - name: Push server image to Lightsail
         run: |
           aws lightsail push-container-image \
             --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} \
             --label server \
-            --image ${{ steps.login-ecr.outputs.registry }}/tokosa-server:latest
+            --image server:${{ steps.vars.outputs.TAG }}
 
+      - name: Push client image to Lightsail
+        run: |
           aws lightsail push-container-image \
             --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} \
             --label client \
-            --image ${{ steps.login-ecr.outputs.registry }}/tokosa-client:latest
+            --image client:${{ steps.vars.outputs.TAG }}
 
+      # ── Generate deployment specs ──────────────────────────────────────────
+      - name: Generate containers.json
+        run: |
+          cat > containers.json <<'JSON'
+          {
+            "server": {
+              "image": ":${LIGHTSAIL_SERVICE_NAME}.server.latest",
+              "ports": { "3000": "HTTP" },
+              "environment": {
+                "NODE_ENV": "production",
+                "PORT": "3000",
+                "DATABASE_URL": "${DATABASE_URL}",
+                "JWT_SECRET":   "${JWT_SECRET}"
+              }
+            },
+            "client": {
+              "image": ":${LIGHTSAIL_SERVICE_NAME}.client.latest",
+              "ports": { "80": "HTTP" }
+            }
+          }
+          JSON
+
+      - name: Generate public-endpoint.json (client public)
+        run: |
+          cat > public-endpoint.json <<'JSON'
+          {
+            "containerName": "client",
+            "containerPort": 80,
+            "healthCheck": {
+              "path": "/",
+              "intervalSeconds": 10,
+              "timeoutSeconds": 5,
+              "healthyThreshold": 2,
+              "unhealthyThreshold": 5
+            }
+          }
+          JSON
+
+      - name: Deploy to Lightsail
+        run: |
           aws lightsail create-container-service-deployment \
             --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} \
             --containers file://containers.json \
