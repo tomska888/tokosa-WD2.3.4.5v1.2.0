@@ -2,7 +2,7 @@ server {
   listen 80;
   server_name _;
 
-  # Lightsail health check
+  # Health check for Lightsail
   location = /healthz {
     add_header Content-Type text/plain;
     return 200 'ok';
@@ -14,14 +14,13 @@ server {
     try_files $uri $uri/ /index.html;
   }
 
-  # Reverse proxy to API on the server container
-  # Per Lightsail docs: <ServiceName>.service.local:<PortNumber>
+  # Proxy API to backend container over Lightsail's private domain
+  # Format: <ServiceName>.service.local:<port>
   location /api/ {
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-
     proxy_pass http://${LIGHTSAIL_SERVICE_NAME}.service.local:3000/api/;
   }
 }

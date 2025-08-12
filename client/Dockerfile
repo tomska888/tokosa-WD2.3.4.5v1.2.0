@@ -1,22 +1,19 @@
 # Build stage
 FROM node:20-alpine AS builder
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci
+# copy lockfile if present; fall back to install if it's missing
+COPY package.json package-lock.json* ./
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 COPY . .
 RUN npm run build
 
-# Runtime: Nginx serves static and proxies /api to server
+# Runtime: nginx serves SPA and proxies /api to server
 FROM nginx:1.27-alpine
-
-# Built SPA
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Use nginx template envsubst feature
+# Use envsubst for templated nginx config
 ENV NGINX_ENVSUBST_TEMPLATE_SUFFIX=.template
 ENV NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/conf.d
-
-# Our template (see next file)
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 
 EXPOSE 80
