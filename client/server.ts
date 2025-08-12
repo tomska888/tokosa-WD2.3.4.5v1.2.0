@@ -28,7 +28,7 @@ const apiProxy = createProxyMiddleware({
       console.error('API proxy error:', err?.message || err);
 
       try {
-        // HTTP path: ServerResponse
+        // HTTP response path
         if ('setHeader' in res) {
           const r = res as ServerResponse<IncomingMessage>;
           if (!r.headersSent) {
@@ -38,11 +38,10 @@ const apiProxy = createProxyMiddleware({
             return;
           }
         }
-
-        // WS/upgrade path or headers already sent: close socket
+        // WebSocket/upgrade or headers already sent
         (res as Socket).end();
       } catch {
-        // ignore
+        /* no-op */
       }
     },
   },
@@ -59,8 +58,8 @@ app.get('/health', (_req, res) => {
 const distDir = path.resolve(__dirname, '../dist');
 app.use(express.static(distDir, { index: false }));
 
-// SPA fallback
-app.get('*', (_req, res) => {
+// SPA fallback (Express 5: use '/*' instead of '*' to avoid path-to-regexp error)
+app.get('/*', (_req, res) => {
   res.sendFile(path.join(distDir, 'index.html'));
 });
 
