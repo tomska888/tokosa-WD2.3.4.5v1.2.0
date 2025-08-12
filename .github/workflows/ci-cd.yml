@@ -2,66 +2,180 @@ name: CI/CD
 
 on:
   push:
-    branches: [main]
-  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: goalbud-main
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: eu-central-1
+  AWS_ACCOUNT_ID: 488927146088
+  LIGHTSAIL_SERVICE_NAME: goalbud
+  SERVER_REPO: tokosa-server
+  CLIENT_REPO: tokosa-client
 
 jobs:
-  build:
+  build_test_push_deploy:
     runs-on: ubuntu-latest
 
     services:
       postgres:
-        image: postgres:16
+        image: postgres:14-alpine
         env:
-          POSTGRES_DB: test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        ports: [ "5432:5432" ]
         options: >-
-          --health-cmd "pg_isready -U postgres" --health-interval 10s --health-timeout 5s --health-retries 5
+          --health-cmd "pg_isready -U testuser"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install dependencies
-        run: npm ci --workspaces
-      - name: Run migrations
+      # ---- Server tests (uses TEST_DATABASE_URL via NODE_ENV=test) ----
+      - name: Install server deps
+        working-directory: server
+        run: npm ci
+
+      - name: Run server tests
+        working-directory: server
         env:
-          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test
-        run: npm run test:coverage -w server
-  deploy:
-    needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - uses: aws-actions/configure-aws-credentials@v4
+          NODE_ENV: test
+          TEST_DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+        run: npm test -- --run
+
+      # ---- Client lint only (no server lint) ----
+      - name: Install client deps
+        working-directory: client
+        run: npm ci
+
+      - name: Lint client
+        working-directory: client
+        run: npm run lint
+
+      # ---- Configure AWS creds & login to ECR ----
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-      - name: Build backend image
-        run: docker build -t server:latest server
-      - name: Build frontend image
-        run: docker build -t client:latest client
-      - name: Push backend image
-        run: aws lightsail push-container-image --service-name ${{ secrets.LIGHTSAIL_SERVICE_NAME }} --label server --image server:latest
-      - name: Push frontend image
-        run: aws lightsail push-container-image --service-name ${{ secrets.LIGHTSAIL_SERVICE_NAME }} --label client --image client:latest
-      - name: Render containers.json
-        run: envsubst < lightsail/containers.json > containers.rendered.json
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tags
+        id: tags
+        run: |
+          echo "sha=${GITHUB_SHA}" >> $GITHUB_OUTPUT
+          echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      # ---- Build & push SERVER image ----
+      - name: Build & push server image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: server/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.SERVER_REPO }}:${{ steps.tags.outputs.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.SERVER_REPO }}:latest
+          provenance: false
+
+      # ---- Build & push CLIENT image ----
+      - name: Build & push client image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: client/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.CLIENT_REPO }}:${{ steps.tags.outputs.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.CLIENT_REPO }}:latest
+          provenance: false
+
+      # ---- Run migrations against Neon (PROD) ----
+      - name: Install server deps for migrate
+        if: always()
+        working-directory: server
+        run: npm ci
+
+      - name: Run migrations (prod)
+        working-directory: server
         env:
-          LIGHTSAIL_SERVICE_NAME: ${{ secrets.LIGHTSAIL_SERVICE_NAME }}
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}  # Neon connection string
+        run: npm run migrate
+
+      # ---- Create deployment spec (no files committed) ----
+      - name: Prepare Lightsail deployment specs
+        run: |
+          REG="${{ steps.login-ecr.outputs.registry }}"
+          SHA="${{ steps.tags.outputs.sha }}"
+
+          cat > containers.json <<'JSON'
+          {
+            "server": {
+              "image": "REGISTRY/SERVER_REPO:SHA",
+              "ports": { "3000": "HTTP" },
+              "environment": {
+                "NODE_ENV": "production",
+                "PORT": "3000",
+                "DATABASE_URL": "DB_URL",
+                "JWT_SECRET": "JWT"
+              }
+            },
+            "client": {
+              "image": "REGISTRY/CLIENT_REPO:SHA",
+              "ports": { "80": "HTTP" }
+            }
+          }
+          JSON
+
+          sed -i "s|REGISTRY|${REG}|g" containers.json
+          sed -i "s|SERVER_REPO|${{ env.SERVER_REPO }}|g" containers.json
+          sed -i "s|CLIENT_REPO|${{ env.CLIENT_REPO }}|g" containers.json
+          sed -i "s|SHA|${SHA}|g" containers.json
+          sed -i "s|DB_URL|${{ secrets.DATABASE_URL }}|g" containers.json
+          sed -i "s|JWT|${{ secrets.JWT_SECRET }}|g" containers.json
+
+          cat > public-endpoint.json <<'JSON'
+          {
+            "containerName": "client",
+            "containerPort": 80,
+            "healthCheck": {
+              "path": "/",
+              "intervalSeconds": 10,
+              "timeoutSeconds": 5,
+              "healthyThreshold": 2,
+              "unhealthyThreshold": 4,
+              "successCodes": "200-499"
+            }
+          }
+          JSON
+
+      # ---- Deploy to Lightsail ----
       - name: Deploy to Lightsail
         run: |
           aws lightsail create-container-service-deployment \
-            --service-name ${{ secrets.LIGHTSAIL_SERVICE_NAME }} \
-            --containers file://containers.rendered.json \
-            --public-endpoint file://lightsail/public-endpoint.json
+            --service-name "${{ env.LIGHTSAIL_SERVICE_NAME }}" \
+            --containers file://containers.json \
+            --public-endpoint file://public-endpoint.json
+
+      - name: Show deployment status
+        run: aws lightsail get-container-services --service-name "${{ env.LIGHTSAIL_SERVICE_NAME }}"
