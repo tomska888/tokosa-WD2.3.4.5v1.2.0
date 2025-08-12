@@ -13,5 +13,9 @@
   "workspaces": [
     "server",
     "client"
-  ]
+  ],
+  "dependencies": {
+    "compression": "^1.8.1",
+    "http-proxy-middleware": "^3.0.5"
+  }
 }
