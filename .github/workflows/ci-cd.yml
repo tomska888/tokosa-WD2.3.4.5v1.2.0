@@ -1,204 +1,53 @@
-name: Deploy to Lightsail (client + server via ECR)
+name: CI/CD
 
 on:
   push:
-    branches: [ main ]
-
-concurrency:
-  group: lightsail-deploy-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
-  id-token: write
-
-env:
-  AWS_REGION: ${{ secrets.AWS_REGION }}
-  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-  LIGHTSAIL_SERVICE_NAME: ${{ secrets.LIGHTSAIL_SERVICE_NAME }}
-  SERVER_REPO: tokosa-server
-  CLIENT_REPO: tokosa-client
-  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
-  IMAGE_TAG: ${{ github.sha }}
+    branches: [main]
+  pull_request:
 
 jobs:
-  test_lint_build_deploy:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # ---- Lint client + Test server + Migrate DB (pre-deploy) ----
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
-      # Client lint
-      - name: Install client deps
-        working-directory: client
-        run: npm install
-      - name: Lint client
-        working-directory: client
-        run: npm run lint
-
-      # Server test (uses TEST_DATABASE_URL)
-      - name: Install server deps
-        working-directory: server
-        run: npm install
-      - name: Build server
-        working-directory: server
-        run: npm run build
-      - name: Test server
-        working-directory: server
-        env:
-          NODE_ENV: test
-          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
-        run: npm test -- --run
-
-      # Run migrations on Neon before deploy
-      - name: Run DB migrations (prod)
-        working-directory: server
-        env:
-          NODE_ENV: production
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: npm run migrate
-
-      # ---- Build & push images ----
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Install dependencies
+        run: npm ci --workspaces
+      - name: Run server tests
+        run: npm test -w server
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to ECR
-        run: |
-          aws ecr get-login-password --region "${AWS_REGION}" \
-            | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
-
-      - name: Ensure ECR repositories exist
-        run: |
-          aws ecr describe-repositories --repository-names "${SERVER_REPO}" --region "${AWS_REGION}" >/dev/null 2>&1 \
-            || aws ecr create-repository --repository-name "${SERVER_REPO}" --image-scanning-configuration scanOnPush=true --region "${AWS_REGION}"
-          aws ecr describe-repositories --repository-names "${CLIENT_REPO}" --region "${AWS_REGION}" >/dev/null 2>&1 \
-            || aws ecr create-repository --repository-name "${CLIENT_REPO}" --image-scanning-configuration scanOnPush=true --region "${AWS_REGION}"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build & push SERVER image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./server
-          file: ./server/Dockerfile
-          push: true
-          platforms: linux/amd64
-          tags: |
-            ${{ env.ECR_REGISTRY }}/${{ env.SERVER_REPO }}:${{ env.IMAGE_TAG }}
-            ${{ env.ECR_REGISTRY }}/${{ env.SERVER_REPO }}:latest
-
-      - name: Build & push CLIENT image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./client
-          file: ./client/Dockerfile
-          push: true
-          platforms: linux/amd64
-          tags: |
-            ${{ env.ECR_REGISTRY }}/${{ env.CLIENT_REPO }}:${{ env.IMAGE_TAG }}
-            ${{ env.ECR_REGISTRY }}/${{ env.CLIENT_REPO }}:latest
-
-      # ---- Lightsail <-> ECR auth ----
-      - name: Activate ECR image puller role for Lightsail
-        run: |
-          aws lightsail update-container-service \
-            --service-name "${LIGHTSAIL_SERVICE_NAME}" \
-            --private-registry-access ecrImagePullerRole={isActive=true} \
-            --region "${AWS_REGION}"
-          sleep 30
-
-      - name: Get Lightsail image puller role ARN
-        id: role
-        run: |
-          ARN=$(aws lightsail get-container-services \
-            --service-name "${LIGHTSAIL_SERVICE_NAME}" \
-            --region "${AWS_REGION}" \
-            --query "containerServices[0].privateRegistryAccess.ecrImagePullerRole.principalArn" \
-            --output text)
-          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
-
-      - name: Grant role pull access on ECR repos
-        run: |
-          POLICY=$(cat <<'JSON'
-          {
-            "Version": "2012-10-17",
-            "Statement": [
-              {
-                "Sid": "AllowLightsailPull",
-                "Effect": "Allow",
-                "Principal": { "AWS": "${{ steps.role.outputs.arn }}" },
-                "Action": [
-                  "ecr:BatchGetImage",
-                  "ecr:GetDownloadUrlForLayer",
-                  "ecr:BatchCheckLayerAvailability",
-                  "ecr:DescribeImages"
-                ]
-              }
-            ]
-          }
-          JSON
-          )
-          aws ecr set-repository-policy --repository-name "${SERVER_REPO}" --policy-text "$POLICY" --region "${AWS_REGION}"
-          aws ecr set-repository-policy --repository-name "${CLIENT_REPO}" --policy-text "$POLICY" --region "${AWS_REGION}"
-
-      # ---- Deploy ----
+          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Build backend image
+        run: docker build -t server:latest server
+      - name: Build frontend image
+        run: docker build -t client:latest client
+      - name: Push backend image
+        run: aws lightsail push-container-image --service-name ${{ secrets.LIGHTSAIL_SERVICE_NAME }} --label server --image server:latest
+      - name: Push frontend image
+        run: aws lightsail push-container-image --service-name ${{ secrets.LIGHTSAIL_SERVICE_NAME }} --label client --image client:latest
       - name: Render containers.json
-        run: |
-          cat > containers.json <<'JSON'
-          {
-            "server": {
-              "image": "${{ env.ECR_REGISTRY }}/${{ env.SERVER_REPO }}:${{ env.IMAGE_TAG }}",
-              "ports": { "3000": "HTTP" },
-              "environment": {
-                "NODE_ENV": "production",
-                "PORT": "3000",
-                "DATABASE_URL": "${{ secrets.DATABASE_URL }}",
-                "JWT_SECRET": "${{ secrets.JWT_SECRET }}"
-              }
-            },
-            "client": {
-              "image": "${{ env.ECR_REGISTRY }}/${{ env.CLIENT_REPO }}:${{ env.IMAGE_TAG }}",
-              "ports": { "80": "HTTP" },
-              "environment": {
-                "LIGHTSAIL_SERVICE_NAME": "${{ env.LIGHTSAIL_SERVICE_NAME }}"
-              }
-            }
-          }
-          JSON
-
-      - name: Render public-endpoint.json
-        run: |
-          cat > public-endpoint.json <<'JSON'
-          {
-            "containerName": "client",
-            "containerPort": 80,
-            "healthCheck": {
-              "path": "/healthz",
-              "intervalSeconds": 15,
-              "timeoutSeconds": 15,
-              "healthyThreshold": 2,
-              "unhealthyThreshold": 5
-            }
-          }
-          JSON
-
+        run: envsubst < lightsail/containers.json > containers.rendered.json
+        env:
+          LIGHTSAIL_SERVICE_NAME: ${{ secrets.LIGHTSAIL_SERVICE_NAME }}
       - name: Deploy to Lightsail
         run: |
           aws lightsail create-container-service-deployment \
-            --service-name "${LIGHTSAIL_SERVICE_NAME}" \
-            --containers file://containers.json \
-            --public-endpoint file://public-endpoint.json \
-            --region "${AWS_REGION}"
+            --service-name ${{ secrets.LIGHTSAIL_SERVICE_NAME }} \
+            --containers file://containers.rendered.json \
+            --public-endpoint file://lightsail/public-endpoint.json

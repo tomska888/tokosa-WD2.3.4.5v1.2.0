@@ -19,5 +19,8 @@ ENV PORT=3000
 COPY --from=build /app/dist ./dist
 COPY package.json package-lock.json* ./
 RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
+RUN apk add --no-cache curl
 EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:$PORT/health || exit 1
 CMD ["node", "dist/index.js"]
