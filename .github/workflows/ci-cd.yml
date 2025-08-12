@@ -117,22 +117,22 @@ jobs:
             },
             "client": {
               "image": ":${LIGHTSAIL_SERVICE_NAME}.client.latest",
-              "ports": { "3000": "HTTP" },
+              "ports": { "8080": "HTTP" },
               "environment": {
                 "NODE_ENV": "production",
-                "PORT": "3000",
+                "PORT": "8080",
                 "API_TARGET": "http://server:3000"
               }
             }
           }
           EOF
 
-      - name: Generate public-endpoint.json (client public, port 3000)
+      - name: Generate public-endpoint.json (client public, port 8080)
         run: |
           cat > public-endpoint.json <<EOF
           {
             "containerName": "client",
-            "containerPort": 3000,
+            "containerPort": 8080,
             "healthCheck": {
               "path": "/health",
               "intervalSeconds": 10,
