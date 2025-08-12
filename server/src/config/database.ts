@@ -9,29 +9,25 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 const isTest = process.env.NODE_ENV === 'test'
-const connectionString = isTest
-  ? process.env.TEST_DATABASE_URL
-  : process.env.DATABASE_URL
 
-// In tests we *must* have TEST_DATABASE_URL
+// Use TEST_DATABASE_URL in tests, otherwise DATABASE_URL
+const connectionString =
+  isTest ? process.env.TEST_DATABASE_URL : process.env.DATABASE_URL
+
+// Fail fast if missing in test
 if (isTest && !connectionString) {
-  throw new Error('❌ TEST_DATABASE_URL is not defined in your .env')
+  throw new Error('❌ TEST_DATABASE_URL is not defined in your .env/CI')
 }
 
-// In production we assume DATABASE_URL will be injected at runtime.
-// If it really is missing, let PG throw a connection error instead of crashing at import time.
-if (!isTest && !connectionString) {
-  console.warn('⚠️  DATABASE_URL is not defined; proceeding without an early throw')
-}
+// Decide SSL: Neon requires TLS; also honor sslmode=require
+const needsTls =
+  /neon\.tech/i.test(connectionString ?? '') ||
+  /sslmode=require/i.test(connectionString ?? '') ||
+  isTest // our tests use Neon branch
 
 const pool = new Pool({
   connectionString,
-  ssl: isTest
-    ? false
-    : {
-        // for managed Postgres/Aurora etc.
-        rejectUnauthorized: false,
-      },
+  ssl: needsTls ? { rejectUnauthorized: false } : false,
 })
 
 interface Database {
