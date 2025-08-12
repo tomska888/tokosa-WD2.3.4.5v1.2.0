@@ -11,8 +11,11 @@ COPY . .
 RUN npm run build
 
 # Install TS toolchain (build-stage only) + type defs
-# NOTE: http-proxy-middleware v3 ships its own types — do NOT install @types/http-proxy-middleware
+# NOTE: http-proxy-middleware v3 ships its own types
 RUN npm install --no-audit --no-fund -D typescript @types/node @types/express @types/compression
+
+# Install runtime libs needed by server.ts so the compiler can resolve imports
+RUN npm install --no-audit --no-fund express compression http-proxy-middleware
 
 # Compile the tiny Node server (server.ts -> build/server.js)
 RUN npx tsc -p tsconfig.server.json

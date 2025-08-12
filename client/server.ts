@@ -1,10 +1,12 @@
 // client/server.ts
 // Minimal Express server to serve the SPA and proxy /api to the API container.
 
-import express, { Request, Response } from 'express';
+import express from 'express';
 import path from 'path';
 import compression from 'compression';
 import { createProxyMiddleware } from 'http-proxy-middleware';
+import type { IncomingMessage, ServerResponse } from 'http';
+import type { Socket } from 'net';
 
 const app = express();
 
@@ -16,18 +18,31 @@ const API_TARGET = process.env.API_TARGET || 'http://server:3000';
 // gzip responses
 app.use(compression());
 
-// Proxy /api to the server container
-const apiProxy = createProxyMiddleware<Request, Response>({
+// Proxy /api to the server container (v3: use `on` for events)
+const apiProxy = createProxyMiddleware({
   target: API_TARGET,
   changeOrigin: false,
   ws: true,
-  // v3: subscribe to events via the `on` object
   on: {
-    error: (err, _req, res) => {
+    error: (err: Error, _req: IncomingMessage, res: ServerResponse<IncomingMessage> | Socket) => {
       console.error('API proxy error:', err?.message || err);
-      // Only send a response if 'res' is an Express Response and headers are not sent
-      if (res instanceof express.response.constructor && !(res as Response).headersSent) {
-        (res as Response).status(502).json({ error: 'Bad Gateway', detail: 'Cannot reach API upstream' });
+
+      try {
+        // HTTP path: ServerResponse
+        if ('setHeader' in res) {
+          const r = res as ServerResponse<IncomingMessage>;
+          if (!r.headersSent) {
+            r.statusCode = 502;
+            r.setHeader('Content-Type', 'application/json');
+            r.end(JSON.stringify({ error: 'Bad Gateway', detail: 'Cannot reach API upstream' }));
+            return;
+          }
+        }
+
+        // WS/upgrade path or headers already sent: close socket
+        (res as Socket).end();
+      } catch {
+        // ignore
       }
     },
   },
@@ -36,7 +51,7 @@ const apiProxy = createProxyMiddleware<Request, Response>({
 app.use('/api', apiProxy);
 
 // Health endpoint for container checks
-app.get('/health', (_req: Request, res: Response) => {
+app.get('/health', (_req, res) => {
   res.status(200).json({ status: 'ok', ts: new Date().toISOString() });
 });
 
@@ -45,7 +60,7 @@ const distDir = path.resolve(__dirname, '../dist');
 app.use(express.static(distDir, { index: false }));
 
 // SPA fallback
-app.get('*', (_req: Request, res: Response) => {
+app.get('*', (_req, res) => {
   res.sendFile(path.join(distDir, 'index.html'));
 });
 
