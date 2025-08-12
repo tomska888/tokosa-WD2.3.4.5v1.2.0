@@ -1,47 +1,22 @@
-# ── Build the SPA and compile TS server ──────────────────────────────────────
-FROM node:20-alpine AS build
+# Build stage
+FROM node:20-alpine AS builder
 WORKDIR /app
-
-# Install project deps for Vite build (no per-workspace lockfile required)
 COPY package*.json ./
-RUN npm install --no-audit --no-fund
-
-# Copy source and build Vite app
+RUN npm ci
 COPY . .
 RUN npm run build
 
-# Install TS toolchain (build-stage only) + type defs
-# NOTE: http-proxy-middleware v3 ships its own types
-RUN npm install --no-audit --no-fund -D typescript @types/node @types/express @types/compression
+# Runtime: Nginx serves static and proxies /api to server
+FROM nginx:1.27-alpine
 
-# Install runtime libs needed by server.ts so the compiler can resolve imports
-RUN npm install --no-audit --no-fund express compression http-proxy-middleware
+# Built SPA
+COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Compile the tiny Node server (server.ts -> build/server.js)
-RUN npx tsc -p tsconfig.server.json
+# Use nginx template envsubst feature
+ENV NGINX_ENVSUBST_TEMPLATE_SUFFIX=.template
+ENV NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/conf.d
 
-# ── Runtime image (no nginx) ────────────────────────────────────────────────
-FROM node:20-alpine
-WORKDIR /app
+# Our template (see next file)
+COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 
-# Install only runtime deps for the tiny server
-RUN npm install --no-audit --no-fund express compression http-proxy-middleware
-
-# Copy built assets and compiled server
-COPY --from=build /app/dist  ./dist
-COPY --from=build /app/build ./build
-
-ENV NODE_ENV=production
-# Client’s public port (avoid 3000 collision with API container)
-ENV PORT=8080
-# Internal DNS name for the API container in Lightsail
-ENV API_TARGET=http://server:3000
-
-# Healthcheck hits our /health endpoint
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD node -e "fetch('http://127.0.0.1:8080/health',{cache:'no-store'}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
-
-# Run as non-root
-USER node
-EXPOSE 8080
-CMD ["node", "build/server.js"]
+EXPOSE 80

@@ -12,9 +12,7 @@
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
     "lint": "eslint . --fix",
-    "format": "prettier --write src/",
-    "build:server": "tsc -p tsconfig.server.json",
-    "serve:spa": "node build/server.js"
+    "format": "prettier --write src/"
   },
   "dependencies": {
     "pinia": "^3.0.3",
