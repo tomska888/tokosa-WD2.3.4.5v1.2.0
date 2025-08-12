@@ -33,7 +33,7 @@ jobs:
 
     env:
       NODE_ENV: test
-      TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+      TEST_DATABASE_URL: postgresql://neondb_owner:npg_iU3LqQO0fBrj@localhost:5432/neondb
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
       AWS_REGION: ${{ secrets.AWS_REGION }}
