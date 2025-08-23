@@ -15,7 +15,7 @@ jobs:
   build_test_deploy:
     runs-on: ubuntu-latest
 
-    # ---- Job-wide env: use Neon TEST DB, not local Postgres
+    # Use Neon for tests
     env:
       NODE_ENV: test
       TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
@@ -36,16 +36,11 @@ jobs:
             server/package-lock.json
             client/package-lock.json
 
-      # ---- Install deps per workspace (no lockfiles required)
-      - name: Install server deps
-        working-directory: server
+      # ---- IMPORTANT: install at repo root so workspace devDeps (e.g. @tsconfig/node18, @types/*) are available ----
+      - name: Install all workspaces
         run: npm ci || npm i
 
-      - name: Install client deps
-        working-directory: client
-        run: npm ci || npm i
-
-      # ---- Migrate & test against Neon TEST DB (TLS required by Neon)
+      # ---- Migrate & test against Neon TEST DB ----
       - name: Run server migrations (test DB)
         working-directory: server
         env:
@@ -112,7 +107,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: npm run migrate
 
-      # ── Generate deployment specs (no repo files) ──────────────────────────
+      # ── Generate deployment specs ──────────────────────────────────────────
       - name: Generate containers.json
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
