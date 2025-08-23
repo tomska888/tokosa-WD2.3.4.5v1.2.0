@@ -1,16 +1,19 @@
-# ---------- build ----------
+# --- builder ---
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+RUN if [ -f package-lock.json ]; then npm ci; else npm i; fi
 COPY . .
+# Vite: npm run build -> dist ; CRA: build
 RUN npm run build
 
-# ---------- static runtime ----------
-FROM nginx:alpine AS runtime
-WORKDIR /usr/share/nginx/html
-RUN rm -rf ./*
-COPY --from=build /app/dist ./
-RUN printf 'server { listen 80; location = /healthz { return 204; } location / { try_files $uri /index.html; } }' > /etc/nginx/conf.d/default.conf
-EXPOSE 80
-CMD ["nginx","-g","daemon off;"]
+# --- runtime ---
+FROM nginx:1.27-alpine
+# Provide our template so entrypoint envsubst can render it
+COPY nginx/default.config.template /etc/nginx/templates/default.conf.template
+# Copy built assets
+#   - Vite: /app/dist  -> /usr/share/nginx/html
+#   - CRA : /app/build -> /usr/share/nginx/html
+COPY --from=build /app/dist/ /usr/share/nginx/html/
+# If you use CRA instead, swap the previous line for:
+# COPY --from=build /app/build/ /usr/share/nginx/html/

@@ -139,7 +139,7 @@ jobs:
             "containerName": "client",
             "containerPort": 80,
             "healthCheck": {
-              "path": "/",
+              "path": "/health",
               "intervalSeconds": 10,
               "timeoutSeconds": 5,
               "healthyThreshold": 2,
