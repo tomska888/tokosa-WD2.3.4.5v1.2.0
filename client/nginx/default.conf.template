@@ -1,27 +1,25 @@
 server {
-  listen       80 default_server;
-  listen       [::]:80 default_server;
+  listen 80;
+  server_name _;
 
-  # Where your build is copied in the image
-  root   /usr/share/nginx/html;
-  index  index.html;
+  root /usr/share/nginx/html;
+  index index.html;
 
-  # Health endpoint for Lightsail/ELB
-  location = /health {
-    access_log off;
-    add_header Content-Type text/plain;
-    return 200 "ok\n";
+  # health check for Lightsail
+  location = /health { return 200; }
+
+  # API -> your backend container (adjust host/port if different)
+  location /api/ {
+    proxy_pass http://server:3000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
   }
 
-  # Serve real files if they exist, otherwise SPA fallback
+  # SPA fallback (prevents the rewrite loop & 500s)
+  # "try_files $uri $uri/ /index.html" is the canonical SPA rule.
   location / {
     try_files $uri $uri/ /index.html;
-  }
-
-  # Static assets cache (optional)
-  location ~* \.(?:js|css|png|jpg|jpeg|gif|svg|ico|woff2?)$ {
-    try_files $uri =404;
-    expires 7d;
-    add_header Cache-Control "public, max-age=604800, immutable";
   }
 }

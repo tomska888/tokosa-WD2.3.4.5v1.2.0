@@ -1,19 +1,16 @@
-# --- builder ---
+# ---- build the SPA ----
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN if [ -f package-lock.json ]; then npm ci; else npm i; fi
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 COPY . .
-# Vite: npm run build -> dist ; CRA: build
 RUN npm run build
 
-# --- runtime ---
+# ---- serve with nginx ----
 FROM nginx:1.27-alpine
-# Provide our template so entrypoint envsubst can render it
-COPY nginx/default.config.template /etc/nginx/templates/default.conf.template
-# Copy built assets
-#   - Vite: /app/dist  -> /usr/share/nginx/html
-#   - CRA : /app/build -> /usr/share/nginx/html
-COPY --from=build /app/dist/ /usr/share/nginx/html/
-# If you use CRA instead, swap the previous line for:
-# COPY --from=build /app/build/ /usr/share/nginx/html/
+# Let the official entrypoint render templates with envsubst -> /etc/nginx/conf.d
+# (this is how the official image works)
+# https://hub.docker.com/_/nginx
+COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80
