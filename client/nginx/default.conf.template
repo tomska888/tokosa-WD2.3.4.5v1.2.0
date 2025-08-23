@@ -1,28 +1,29 @@
-# this file is included inside the main 'http { }' context by nginx.conf
+# client/nginx/default.conf.template
+# This file is included inside the top-level `http { }` by nginx.conf
 
-# define upstream inside http-context (valid here)
 upstream backend {
-  server ${BACKEND_HOST:-127.0.0.1}:${BACKEND_PORT:-3000};
+    # envsubst will replace these at startup
+    server ${BACKEND_HOST}:${BACKEND_PORT};
 }
 
 server {
-  listen 80 default_server;
+    listen 80 default_server;
 
-  # health checks
-  location = /health { return 200; }
+    # Health check for Lightsail
+    location = /health { return 200; }
 
-  # static SPA
-  location / {
-    try_files $uri /index.html;
-  }
+    # Static SPA
+    location / {
+        try_files $uri /index.html;
+    }
 
-  # API
-  location /api/ {
-    proxy_pass http://backend;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-  }
+    # API -> backend
+    location /api/ {
+        proxy_pass http://backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 }
