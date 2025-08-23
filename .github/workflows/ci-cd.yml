@@ -59,7 +59,7 @@ jobs:
       - name: Lint client
         run: npm run lint --workspace client
 
-      # ── Build Docker images ────────────────────────────────────────────────
+      # ── Build local Docker images ───────────────────────────────────────────
       - name: Set tag
         id: vars
         run: echo "TAG=${GITHUB_SHA::12}" >> $GITHUB_OUTPUT
@@ -70,7 +70,7 @@ jobs:
       - name: Build client image
         run: docker build -t client:${{ steps.vars.outputs.TAG }} ./client
 
-      # ── Push to Lightsail registry ────────────────────────────────────────
+      # ── Push to Lightsail registry ─────────────────────────────────────────
       - name: Install lightsailctl
         run: |
           curl -Lo lightsailctl https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl
@@ -95,7 +95,7 @@ jobs:
             --service-name "$LIGHTSAIL_SERVICE_NAME" \
             --label client \
             --image client:${{ steps.vars.outputs.TAG }}
-      # ── Generate deployment specs (variables expand) ──────────────────────
+      # ── Generate deployment specs (allow variable expansion!) ──────────────
       - name: Generate containers.json
         run: |
           cat > containers.json <<EOF
@@ -112,23 +112,18 @@ jobs:
             },
             "client": {
               "image": ":${LIGHTSAIL_SERVICE_NAME}.client.latest",
-              "ports": { "8080": "HTTP" },
-              "environment": {
-                "NODE_ENV": "production",
-                "PORT": "8080",
-                "API_TARGET": "http://server:3000"
-              }
+              "ports": { "80": "HTTP" }
             }
           }
           EOF
-      - name: Generate public-endpoint.json (client public, port 8080)
+      - name: Generate public-endpoint.json (client public)
         run: |
           cat > public-endpoint.json <<EOF
           {
             "containerName": "client",
-            "containerPort": 8080,
+            "containerPort": 80,
             "healthCheck": {
-              "path": "/health",
+              "path": "/",
               "intervalSeconds": 10,
               "timeoutSeconds": 5,
               "healthyThreshold": 2,
@@ -138,7 +133,7 @@ jobs:
           EOF
       - name: Sanity check resolved image names (no secrets)
         run: |
-          echo "Images:"
+          echo "Expecting images:"
           echo "  :${LIGHTSAIL_SERVICE_NAME}.server.latest"
           echo "  :${LIGHTSAIL_SERVICE_NAME}.client.latest"
       - name: Deploy to Lightsail
