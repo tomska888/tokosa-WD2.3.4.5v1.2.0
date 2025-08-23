@@ -1,41 +1,43 @@
-# Rendered by nginx:alpine entrypoint via envsubst
-# We resolve container names through Docker's embedded DNS.
+# Nginx reads conf.d/*.conf inside the "http" context.
+# map is allowed here (http-level), resolver can also be http-level if you prefer it there.
+
+# Docker’s embedded DNS inside the container
 resolver 127.0.0.11 ipv6=off;
 
-map $request_uri $is_api {
-  default 0;
-  ~^/api/ 1;
-}
-
-# Backend target comes from env so nginx doesn't try to resolve at boot.
-# (Name resolution happens per-request when using a variable in proxy_pass.)
-set $backend "${BACKEND_HOST}:${BACKEND_PORT}";
+# (Optional) example map — remove if you don’t use it
+# map $request_uri $is_api {
+#   default 0;
+#   ~^/api/ 1;
+# }
 
 server {
-  listen       80 default_server;
-  listen       [::]:80 default_server;
-  server_name  _;
+  listen 80 default_server;
+  listen [::]:80 default_server;
+  server_name _;
 
-  # --- API: reverse proxy to the server container ---
+  # ✅ set must be inside server/location/if
+  set $backend "${BACKEND_HOST}:${BACKEND_PORT}";
+
+  # Serve the built app
+  root /usr/share/nginx/html;
+  index index.html;
+
+  # Simple health endpoint for Lightsail
+  location = /health { return 200; }
+
+  # API → server container
   location /api/ {
-    proxy_set_header Host              $host;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
 
-    proxy_read_timeout 60s;
-    proxy_connect_timeout 5s;
-
+    # Important when using variables in proxy_pass
     proxy_pass http://$backend;
   }
 
-  # --- Health checks ---
-  location = /health { return 200; }
-  location = / { try_files /index.html =200; }  # keep ELB happy
-
-  # --- Static assets (Vite build) ---
-  root /usr/share/nginx/html;
-
-  # SPA fallback for everything that is NOT /api/*
+  # SPA fallback
   location / {
     try_files $uri $uri/ /index.html;
   }
