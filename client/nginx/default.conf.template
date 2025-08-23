@@ -1,24 +1,41 @@
+# Rendered by nginx:alpine entrypoint via envsubst
+# We resolve container names through Docker's embedded DNS.
+resolver 127.0.0.11 ipv6=off;
+
+map $request_uri $is_api {
+  default 0;
+  ~^/api/ 1;
+}
+
+# Backend target comes from env so nginx doesn't try to resolve at boot.
+# (Name resolution happens per-request when using a variable in proxy_pass.)
+set $backend "${BACKEND_HOST}:${BACKEND_PORT}";
+
 server {
-  listen 80;
-  server_name _;
+  listen       80 default_server;
+  listen       [::]:80 default_server;
+  server_name  _;
 
-  root /usr/share/nginx/html;
-  index index.html;
-
-  # health check for Lightsail
-  location = /health { return 200; }
-
-  # API -> your backend container (adjust host/port if different)
+  # --- API: reverse proxy to the server container ---
   location /api/ {
-    proxy_pass http://server:3000;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Host              $host;
     proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+
+    proxy_read_timeout 60s;
+    proxy_connect_timeout 5s;
+
+    proxy_pass http://$backend;
   }
 
-  # SPA fallback (prevents the rewrite loop & 500s)
-  # "try_files $uri $uri/ /index.html" is the canonical SPA rule.
+  # --- Health checks ---
+  location = /health { return 200; }
+  location = / { try_files /index.html =200; }  # keep ELB happy
+
+  # --- Static assets (Vite build) ---
+  root /usr/share/nginx/html;
+
+  # SPA fallback for everything that is NOT /api/*
   location / {
     try_files $uri $uri/ /index.html;
   }

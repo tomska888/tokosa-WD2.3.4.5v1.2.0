@@ -113,24 +113,28 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET:   ${{ secrets.JWT_SECRET }}
         run: |
-          cat > containers.json <<EOF
-          {
-            "server": {
-              "image": ":${LIGHTSAIL_SERVICE_NAME}.server.latest",
-              "ports": { "3000": "HTTP" },
-              "environment": {
-                "NODE_ENV": "production",
-                "PORT": "3000",
-                "DATABASE_URL": "${DATABASE_URL}",
-                "JWT_SECRET":   "${JWT_SECRET}"
+            cat > containers.json <<EOF
+            {
+              "server": {
+                "image": ":${LIGHTSAIL_SERVICE_NAME}.server.latest",
+                "ports": { "3000": "HTTP" },
+                "environment": {
+                  "NODE_ENV": "production",
+                  "PORT": "3000",
+                  "DATABASE_URL": "${DATABASE_URL}",
+                  "JWT_SECRET":   "${JWT_SECRET}"
+                }
+              },
+              "client": {
+                "image": ":${LIGHTSAIL_SERVICE_NAME}.client.latest",
+                "ports": { "80": "HTTP" },
+                "environment": {
+                  "BACKEND_HOST": "server",
+                  "BACKEND_PORT": "3000"
+                }
               }
-            },
-            "client": {
-              "image": ":${LIGHTSAIL_SERVICE_NAME}.client.latest",
-              "ports": { "80": "HTTP" }
             }
-          }
-          EOF
+            EOF
 
       - name: Generate public-endpoint.json (client public)
         run: |
